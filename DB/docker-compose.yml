@@ -23,16 +23,6 @@ services:
     volumes:
       - redis_data:/data
 
-  # connection url => redis://host.docker.internal:6379
-  redisinsight:
-    image: redislabs/redisinsight:latest
-    container_name: redis_insight
-    restart: always
-    ports:
-      - "5540:5540"
-    volumes:
-      - redisinsight_data:/db
-
   mongo:
     image: mongo:latest
     container_name: mongo_db
@@ -44,6 +34,16 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+  
+  # Redis GUI: redis://host.docker.internal:6379
+  redisinsight:
+    image: redislabs/redisinsight:latest
+    container_name: redis_insight
+    restart: always
+    ports:
+      - "5540:5540"
+    volumes:
+      - redisinsight_data:/db
 
 volumes:
   postgres_data:
