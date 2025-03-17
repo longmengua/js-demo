@@ -202,22 +202,22 @@ async function main() {
 
         // 插入彩票活動資料並獲得 lottery_id
         const lotteryId = 1;
-        // await insertLotteryInfo();
-        // await insertPrizeTypes(lotteryId);
-        // await insertBallPositions(lotteryId);
-        // await insertZodiacPrizes(lotteryId);
-        // await insertDoubleSideBets(lotteryId);
+        await insertLotteryInfo();
+        await insertPrizeTypes(lotteryId);
+        await insertBallPositions(lotteryId);
+        await insertZodiacPrizes(lotteryId);
+        await insertDoubleSideBets(lotteryId);
 
         // 插入200萬筆用戶資料
         const numberOfUsers = 2000000;
-        // await batchInsertUsers(numberOfUsers);
+        await batchInsertUsers(numberOfUsers);
 
         // 插入1000筆投注資料
         const numberOfBets = 10000000;
         await batchInsertBettingInfo(lotteryId, numberOfUsers, numberOfBets);
 
         // 插入交易記錄資料
-        // await insertTransactionInfo(numberOfUsers, numberOfBets);
+        await insertTransactionInfo(numberOfUsers, numberOfBets);
 
         console.log('所有資料插入完成');
     } catch (err) {
