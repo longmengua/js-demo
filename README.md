@@ -2,4 +2,8 @@
 
 # phases
 
-- 先將必要的
+- phase 1
+    - 新增相關需要的DB, ELK, Locust的docker-compose file
+
+- phase 2
+    - 
