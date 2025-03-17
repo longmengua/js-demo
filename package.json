@@ -24,6 +24,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.13.10",
-    "@types/pg": "^8.11.11"
+    "@types/pg": "^8.11.11",
+    "pg-promise": "^11.12.1"
   }
 }

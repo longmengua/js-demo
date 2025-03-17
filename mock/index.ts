@@ -36,45 +36,45 @@ const generateRandomEmail = (name: string) => {
 };
 
 // 隨機生成交易金額
-const generateRandomAmount = () => {
-    return (Math.random() * (1000 - 10) + 10).toFixed(2);  // 隨機生成 10 到 1000 之間的金額
+const generateRandomAmount = (): number => {
+    return Math.ceil((Math.random() * (1000 - 10) + 10));  // 隨機生成 10 到 1000 之間的金額
 };
 
 // 插入資料到資料庫
-const batchInsert = async (query: string, values: any[][]) => {
-    let toReturn: any = undefined
+const batchInsert = async (query: (values: any) => string, values: any[][]) => {
     console.time('批次時間');
-    const batchSize = 1000; // 每批1000筆資料
+    const batchSize = 10000; // 每批1000筆資料
     let bt = batchSize; // 每批1000筆資料
     for (let i = 0; i < values.length; i += bt) {
         const batch = values.slice(i, i + bt);
 
         try {
             await client.query('BEGIN'); // 開始一個新的事務
-            for (const value of batch) {
-                await client.query(query, value); // 逐筆插入
-            }
+            const str = batch.map((_, index) =>
+                `($${index * 4 + 1}, $${index * 4 + 2}, $${index * 4 + 3}, $${index * 4 + 4})`
+            ).join(', ');
+            const queryStr = query(str);
+            await client.query(queryStr, batch.flat()); // 插入資料
             await client.query('COMMIT'); // 提交事務
         } catch (err: any) {
             await client.query('ROLLBACK'); // 回滾事務
-            const errorData = { query, batch, error: err?.message };
-            console.error(`批次插入資料錯誤，跳過此批次: ${err.message}`);
-            bt = Math.floor(bt / 2); // 減小批次大小
+            bt = Math.ceil(bt / 2); // 減小批次大小
             i -= bt; // 回退到上一個批次
-            if (i == 1) {
-                fs.appendFileSync('errorLog.txt', JSON.stringify(errorData) + '\n');
+            console.error(`批次插入資料錯誤，跳過此批次(batch:${bt}): ${err.message}`);
+            if (bt == 1) {
+                fs.appendFileSync('errorLog.txt', JSON.stringify(batch) + '\n');
                 bt = batchSize; // 重置批次大小
                 continue;
             }
         }
     }
     console.timeEnd('批次時間');
-    return toReturn;
 };
 
 // 批次插入用戶資料
 const batchInsertUsers = async (userCount: number) => {
-    const query = 'INSERT INTO users (username, email, password_hash, full_name) VALUES ($1, $2, $3, $4) RETURNING user_id';
+    // const query = 'INSERT INTO users (username, email, password_hash, full_name) VALUES ($1, $2, $3, $4) RETURNING user_id';
+    const queryStr = (values: any) => `INSERT INTO users (username, email, password_hash, full_name) VALUES ${values}`;
     let values = [];
     for (let i = 0; i < userCount; i++) {
         let fullName = generateRandomName();
@@ -82,8 +82,8 @@ const batchInsertUsers = async (userCount: number) => {
         let email = generateRandomEmail(fullName);
         const passwordHash = 'hashed_password'; // 假設用戶密碼已經哈希
         values.push([name, email, passwordHash, fullName]);
-        if (i % 1000 === 0) {
-            await batchInsert(query, values);
+        if (i % 10000 === 0) {
+            await batchInsert(queryStr, values);
             values = []
         }
     }
@@ -101,27 +101,34 @@ const insertLotteryInfo = async () => {
         Math.floor(Math.random() * 49) + 1, // special_number
     ];
     const res = await client.query(query, lotteryValues);
-    return res.rows[0].lottery_id;
 };
 
 // 插入獎項資料
 const insertPrizeTypes = async (lotteryId: number) => {
     console.time('插入獎項資料');
-    const query = 'INSERT INTO prize_types (lottery_id, type, numbers_range_start, numbers_range_end, pay_rate) VALUES ($1, $2, $3, $4, $5)';
+    // const query = 'INSERT INTO prize_types (lottery_id, type, numbers_range_start, numbers_range_end, pay_rate) VALUES ($1, $2, $3, $4, $5)';
+    const queryStr = (values: any) => `
+        INSERT INTO prize_types (lottery_id, type, numbers_range_start, numbers_range_end, pay_rate)
+        VALUES ${values}
+    `;
     const prizeTypesValues = [
         [lotteryId, 'First Prize', 1, 10, 1000.00],
         [lotteryId, 'Second Prize', 11, 20, 500.00],
         [lotteryId, 'Third Prize', 21, 30, 100.00],
         [lotteryId, 'Consolation Prize', 31, 49, 10.00],
     ];
-    await batchInsert(query, prizeTypesValues);
+    await batchInsert(queryStr, prizeTypesValues);
     console.timeEnd('插入獎項資料');
 };
 
 // 插入號碼投注位置規則
 const insertBallPositions = async (lotteryId: number) => {
     console.time('插入號碼投注位置規則');
-    const query = 'INSERT INTO ball_positions (lottery_id, position_name, pay_rate, valid_number_range_start, valid_number_range_end) VALUES ($1, $2, $3, $4, $5)';
+    // const query = 'INSERT INTO ball_positions (lottery_id, position_name, pay_rate, valid_number_range_start, valid_number_range_end) VALUES ($1, $2, $3, $4, $5)';
+    const queryStr = (values: any) => `
+        INSERT INTO ball_positions (lottery_id, position_name, pay_rate, valid_number_range_start, valid_number_range_end)
+        VALUES ${values}
+    `;
     const ballPositionsValues = [
         [lotteryId, 'Position 1', 2.00, 1, 9],
         [lotteryId, 'Position 2', 2.00, 10, 18],
@@ -130,14 +137,18 @@ const insertBallPositions = async (lotteryId: number) => {
         [lotteryId, 'Position 5', 2.00, 37, 45],
         [lotteryId, 'Position 6', 2.00, 46, 49],
     ];
-    await batchInsert(query, ballPositionsValues);
+    await batchInsert(queryStr, ballPositionsValues);
     console.timeEnd('插入號碼投注位置規則');
 };
 
 // 插入生肖獎項資料
 const insertZodiacPrizes = async (lotteryId: number) => {
     console.time('插入生肖獎項資料');
-    const query = 'INSERT INTO zodiac_prizes (lottery_id, zodiac_name, numbers, pay_rate) VALUES ($1, $2, $3, $4)';
+    // const query = 'INSERT INTO zodiac_prizes (lottery_id, zodiac_name, numbers, pay_rate) VALUES ($1, $2, $3, $4)';
+    const queryStr = (values: any) => `
+        INSERT INTO zodiac_prizes (lottery_id, zodiac_name, numbers, pay_rate)
+        VALUES ${values}
+    `;
     const zodiacPrizesValues = [
         [lotteryId, 'Rat', JSON.stringify([1, 13, 25, 37]), 100.00],
         [lotteryId, 'Ox', JSON.stringify([2, 14, 26, 38]), 100.00],
@@ -145,34 +156,42 @@ const insertZodiacPrizes = async (lotteryId: number) => {
         [lotteryId, 'Rabbit', JSON.stringify([4, 16, 28, 40]), 100.00],
         [lotteryId, 'Dragon', JSON.stringify([5, 17, 29, 41]), 100.00],
     ];
-    await batchInsert(query, zodiacPrizesValues);
+    await batchInsert(queryStr, zodiacPrizesValues);
     console.timeEnd('插入生肖獎項資料');
 };
 
 // 插入雙面投注資料
 const insertDoubleSideBets = async (lotteryId: number) => {
     console.time('插入雙面投注資料');
-    const query = 'INSERT INTO double_side_bets (lottery_id, side_name, number_range_start, number_range_end, pay_rate) VALUES ($1, $2, $3, $4, $5)';
+    // const query = 'INSERT INTO double_side_bets (lottery_id, side_name, number_range_start, number_range_end, pay_rate) VALUES ($1, $2, $3, $4, $5)';
+    const queryStr = (values: any) => `
+        INSERT INTO double_side_bets (lottery_id, side_name, number_range_start, number_range_end, pay_rate)
+        VALUES ${values}
+    `;
     const doubleSideBetsValues = [
         [lotteryId, 'Large', 25, 49, 2.00],
         [lotteryId, 'Small', 1, 24, 2.00],
         [lotteryId, 'Odd', 1, 49, 1.90],
         [lotteryId, 'Even', 1, 49, 1.90],
     ];
-    await batchInsert(query, doubleSideBetsValues);
+    await batchInsert(queryStr, doubleSideBetsValues);
     console.timeEnd('插入雙面投注資料');
 };
 
 // 批次插入投注資料
 const batchInsertBettingInfo = async (lotteryId: number, numberOfUsers: number, numberOfBets: number) => {
-    const query = 'INSERT INTO betting_info (lottery_id, user_id, bet_type, betting_numbers, bet_time) VALUES ($1, $2, $3, $4, $5) RETURNING bet_id';
+    // const query = 'INSERT INTO betting_info (lottery_id, user_id, bet_type, betting_numbers, bet_time) VALUES ($1, $2, $3, $4, $5) RETURNING bet_id';
+    const queryStr = (values: any) => `
+        INSERT INTO betting_info (lottery_id, user_id, bet_type, betting_numbers, bet_time)
+        VALUES ${values}
+    `;
     const values = [];
     for (let i = 0; i < numberOfBets; i++) {
         const userId = Math.floor(Math.random() * numberOfUsers) + 1;
         values.push([lotteryId, userId, 'Main Numbers', JSON.stringify([5, 12, 19, 26, 33, 40]), new Date()]);
         values.push([lotteryId, userId, 'Zodiac', JSON.stringify([1, 13, 25, 37]), new Date()]);
-        if (i % 1000 === 0) {
-            await batchInsert(query, values);
+        if (i % 10000 === 0) {
+            await batchInsert(queryStr, values);
         }
     }
 };
@@ -180,15 +199,29 @@ const batchInsertBettingInfo = async (lotteryId: number, numberOfUsers: number, 
 // 插入交易記錄資料
 const insertTransactionInfo = async (numberOfUsers: number, numberOfBets: number) => {
     console.time('插入交易記錄資料');
-    const query = 'INSERT INTO transaction_info (user_id, bet_id, amount, transaction_type) VALUES ($1, $2, $3, $4)';
+    // const query = 'INSERT INTO transaction_info (user_id, bet_id, amount, transaction_type) VALUES ($1, $2, $3, $4)';
+    const queryStr = (values: any) => `
+        INSERT INTO transaction_info (user_id, bet_id, amount, transaction_type)
+        VALUES ${values}
+    `;
     let transactionValues = [];
     for (let i = 0; i < numberOfBets; i++) {
-        const userId = Math.floor(Math.random() * numberOfUsers) + 1;
+        const userId = Math.ceil(Math.random() * numberOfUsers + 1);  // 隨機生成 10 到 1000 之間的金額
         const betId = i + 1;
-        transactionValues.push([userId, betId, generateRandomAmount(), 'Bet']);
-        if (i % 1000 === 0) {
-            await batchInsert(query, transactionValues);
-            transactionValues = [];
+        const v = [userId, betId, generateRandomAmount(), 'bet'];
+        transactionValues.push(v);
+        if (i % 10000 === 0) {
+            try {
+                await client.query('BEGIN'); // 開始一個新的事務
+                await batchInsert(queryStr, transactionValues); // 調整後的批次插入
+                await client.query('COMMIT'); // 提交事務
+                transactionValues = [];
+            } catch (err: any) {
+                await client.query('ROLLBACK'); // 回滾事務
+                const errorData = { transactionValues, error: err?.message };
+                console.error(`插入交易記錄資料錯誤，跳過此批次: ${err.message}`);
+                fs.appendFileSync('errorLog.txt', JSON.stringify(errorData) + '\n');
+            }
         }
     }
     console.timeEnd('插入交易記錄資料');
@@ -217,7 +250,7 @@ async function main() {
         await batchInsertBettingInfo(lotteryId, numberOfUsers, numberOfBets);
 
         // 插入交易記錄資料
-        await insertTransactionInfo(numberOfUsers, numberOfBets);
+        // await insertTransactionInfo(numberOfUsers, numberOfBets);
 
         console.log('所有資料插入完成');
     } catch (err) {
