@@ -220,7 +220,7 @@ const insertTransactionInfo = async (numberOfUsers: number, numberOfBets: number
                 await client.query('ROLLBACK'); // 回滾事務
                 const errorData = { transactionValues, error: err?.message };
                 console.error(`插入交易記錄資料錯誤，跳過此批次: ${err.message}`);
-                fs.appendFileSync('errorLog.txt', JSON.stringify(errorData) + '\n');
+                fs.appendFileSync('error.txt', JSON.stringify(errorData) + '\n');
             }
         }
     }
