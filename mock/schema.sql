@@ -33,6 +33,7 @@ CREATE TABLE prize_types (
     pay_rate DECIMAL(10, 2) NOT NULL,
     FOREIGN KEY (lottery_id) REFERENCES lottery_info(lottery_id)
 );
+CREATE INDEX idx_prize_types_lottery_id ON prize_types(lottery_id);
 
 -- ball_positions 表格 (儲存號碼投注位置的規則)
 CREATE TABLE ball_positions (
@@ -76,6 +77,8 @@ CREATE TABLE betting_info (
     bet_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (lottery_id) REFERENCES lottery_info(lottery_id)
 );
+CREATE INDEX idx_betting_info_lottery_id ON betting_info(lottery_id);
+CREATE INDEX idx_betting_info_user_id ON betting_info(user_id);
 
 -- cancellation_policy 表格 (儲存取消政策)
 CREATE TABLE cancellation_policy (
@@ -98,6 +101,8 @@ CREATE TABLE transaction_info (
     FOREIGN KEY (user_id) REFERENCES users(user_id),
     FOREIGN KEY (bet_id) REFERENCES betting_info(bet_id)
 );
+CREATE INDEX idx_transaction_bet_id ON transaction_info (bet_id);
+CREATE INDEX idx_transaction_user_id ON transaction_info (user_id);
 
 -- winners_info 表格 (儲存中獎資訊)
 CREATE TABLE winners_info (
