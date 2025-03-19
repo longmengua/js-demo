@@ -4,8 +4,11 @@
   "scripts": {
     "build": "npx tsc",
     "start": "node dist/index.js",
-    "dev": "npx ts-node src/v1/index.ts",
-    "dev:worker": "node src/v2/index.js",
+    "dev:v1": "npx ts-node src/v1/index.ts",
+    "dev:v2": "node src/v2/index.js",
+    "dev:v3": "npx ts-node src/v3/index.ts",
+    "dev:v4": "npx ts-node src/v4/index.ts",
+    "dev:v5": "npx ts-node src/v5/index.ts",
     "migration:mock-data": "npx ts-node mock/index.ts"
   },
   "repository": {

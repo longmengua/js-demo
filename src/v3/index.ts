@@ -1,12 +1,15 @@
-import { Client } from 'pg';
+import { Pool } from 'pg';
 
-// 創建 PostgreSQL 客戶端
-const client = new Client({
+// 創建 PostgreSQL 連線池
+const pool = new Pool({
     host: 'localhost',
     port: 5432,
     user: 'postgres',
     password: 'postgres',
     database: 'postgres',
+    max: 20,  // 假設你的 VM 可以承受 20 個並行連線
+    idleTimeoutMillis: 30000,  // 空閒連線最大閒置時間設為 30 秒
+    connectionTimeoutMillis: 2000,  // 連線超時時間設為 2 秒
 });
 
 // 隨機生成號碼的函數
@@ -21,6 +24,7 @@ const generateRandomNumbers = (rangeStart: number, rangeEnd: number, count: numb
 
 // 記錄開獎結果到資料庫
 const recordDrawResult = async (lotteryId: number, winningNumbers: number[], specialNumber: number): Promise<void> => {
+    const client = await pool.connect();
     try {
         const query = `
             INSERT INTO bet_results (lottery_id, winning_numbers, special_number, draw_date)
@@ -31,12 +35,14 @@ const recordDrawResult = async (lotteryId: number, winningNumbers: number[], spe
         console.log('Lottery draw result recorded successfully');
     } catch (error) {
         console.error('Error recording draw result:', error);
+    } finally {
+        client.release();  // 釋放連線回池中
     }
-    // 無返回值，返回 void
 };
 
 // 優化後的中獎處理函數（批量插入中獎資料）
 const processWinners = async (bettingData: any[], winningNumbers: number[], specialNumber: number): Promise<void> => {
+    const client = await pool.connect();
     const winners: any[] = [];
 
     // 處理每個投注的中獎邏輯
@@ -64,45 +70,53 @@ const processWinners = async (bettingData: any[], winningNumbers: number[], spec
             VALUES 
             ${winners.map((winner, index) => `($${index * 3 + 1}, $${index * 3 + 2}, $${index * 3 + 3}, CURRENT_TIMESTAMP)`).join(', ')}
         `;
-
         const values = winners.flatMap(winner => [winner.betId, winner.prizeTypeId, winner.winningAmount]);
         await client.query(insertQuery, values);
         // console.log('Batch winner records inserted successfully');
     }
-    // 無返回值，返回 void
+    client.release();  // 釋放連線回池中
 };
 
 const LotteryDraw = async (lotteryId: number) => {
-    // 獲取彩票遊戲的基本資訊
-    const lotteryRes = await client.query(
-        'SELECT * FROM lottery_info WHERE lottery_id = $1',
-        [lotteryId]
-    );
-    if (lotteryRes.rows.length === 0) {
-        console.log('Lottery not found!');
-        return undefined;
+    const client = await pool.connect();
+    try {
+        // 獲取彩票遊戲的基本資訊
+        const lotteryRes = await client.query(
+            'SELECT * FROM lottery_info WHERE lottery_id = $1',
+            [lotteryId]
+        );
+        if (lotteryRes.rows.length === 0) {
+            console.log('Lottery not found!');
+            return undefined;
+        }
+
+        const { total_numbers, main_numbers, special_number, lottery_id } = lotteryRes.rows[0];
+
+        // 隨機選擇主號碼
+        const mainNumbers = generateRandomNumbers(1, total_numbers, main_numbers);
+
+        // 隨機選擇特別號碼
+        const specialNumbers = generateRandomNumbers(1, total_numbers, special_number);
+
+        // 記錄開獎結果到資料庫
+        await recordDrawResult(lottery_id, mainNumbers, specialNumbers[0]);
+
+        return { mainNumbers, specialNumbers }
+    } catch (error) {
+        console.error('Error in LotteryDraw:', error);
+    } finally {
+        client.release();  // 釋放連線回池中
     }
-
-    const { total_numbers, main_numbers, special_number, lottery_id } = lotteryRes.rows[0];
-
-    // 隨機選擇主號碼
-    const mainNumbers = generateRandomNumbers(1, total_numbers, main_numbers);
-
-    // 隨機選擇特別號碼
-    const specialNumbers = generateRandomNumbers(1, total_numbers, special_number);
-
-    // 記錄開獎結果到資料庫
-    await recordDrawResult(lottery_id, mainNumbers, specialNumbers[0]);
-
-    return { mainNumbers, specialNumbers }
-}
+};
 
 const getBetResults = async (lotteryId: number) => {
+    const client = await pool.connect();
     const query = `
         SELECT * FROM bet_results WHERE lottery_id = $1
     `;
     const values = [lotteryId];
     const res = await client.query(query, values);
+    client.release();  // 釋放連線回池中
     return res.rows;
 }
 
@@ -154,6 +168,7 @@ const drawLottery = async (lotteryId: number, batchSize: number = 10000, maxConc
         }
 
         // 獲取總的投注資料數量
+        const client = await pool.connect();
         const totalBetsRes = await client.query('SELECT COUNT(*) FROM betting_info WHERE lottery_id = $1', [lotteryId]);
         const totalBets = parseInt(totalBetsRes.rows[0].count, 10);
 
@@ -187,10 +202,9 @@ const drawLottery = async (lotteryId: number, batchSize: number = 10000, maxConc
 
 // 啟動應用程序
 async function main(): Promise<void> {
-    await client.connect();
     // 執行開獎（例如，開獎 ID 為 1 的遊戲）
     await drawLottery(1);
-    await client.end();
+    await pool.end();  // 關閉連線池
 }
 
 main();
