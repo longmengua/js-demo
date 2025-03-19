@@ -16,132 +16,180 @@ const generateRandomNumbers = (rangeStart: number, rangeEnd: number, count: numb
         const randomNumber = Math.floor(Math.random() * (rangeEnd - rangeStart + 1)) + rangeStart;
         numbers.add(randomNumber);
     }
-    return Array.from(numbers);
+    return Array.from(numbers);  // 返回隨機號碼的數組
 };
 
-// 記錄開獎結果到資料庫（你可以選擇是否要儲存開獎結果）
-const recordDrawResult = async (lotteryId: number, winningNumbers: number[], specialNumber: number) => {
+// 記錄開獎結果到資料庫
+const recordDrawResult = async (lotteryId: number, winningNumbers: number[], specialNumber: number): Promise<void> => {
     try {
         const query = `
             INSERT INTO bet_results (lottery_id, winning_numbers, special_number, draw_date)
             VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
         `;
         const values = [lotteryId, JSON.stringify(winningNumbers), specialNumber];
-
         await client.query(query, values);
         console.log('Lottery draw result recorded successfully');
     } catch (error) {
         console.error('Error recording draw result:', error);
     }
+    // 無返回值，返回 void
 };
 
-// 計算中獎金額
-const calculateWinningAmount = async (lotteryId: number, betType: string, bettingNumbers: number[], winningNumbers: number[], specialNumber: number): Promise<number> => {
-    let winningAmount = 0;
+// 優化後的中獎處理函數（批量插入中獎資料）
+const processWinners = async (bettingData: any[], winningNumbers: number[], specialNumber: number): Promise<void> => {
+    const winners: any[] = [];
 
-    // 根據 bet_type 來判斷獎金計算邏輯
-    switch (betType) {
-        case '正碼':
-            // 假設正碼是主號碼中任意 3 顆號碼匹配
-            const matchedMainNumbers = bettingNumbers.filter(num => winningNumbers.includes(num)).length;
-            if (matchedMainNumbers >= 3) {
-                // 這裡的計算邏輯你可以根據實際情況來修改
-                winningAmount = matchedMainNumbers * 100;  // 假設每中一個號碼獎金為 100
-            }
-            break;
+    // 處理每個投注的中獎邏輯
+    for (const bet of bettingData) {
+        const betNumbers = bet.betting_numbers;
+        const matchedMainNumbers = betNumbers.filter((num: number) => winningNumbers.includes(num));
+        const matchedSpecialNumber = betNumbers.includes(specialNumber);
 
-        case '生肖':
-            // 假設生肖是依照特別號碼來匹配
-            if (bettingNumbers.includes(specialNumber)) {
-                winningAmount = 500;  // 假設生肖中獎金額是 500
-            }
-            break;
+        // 計算中獎金額，假設是根據中獎號碼的數量來決定
+        const winningAmount = matchedMainNumbers.length * 1000 + (matchedSpecialNumber ? 5000 : 0);
 
-        case '雙面':
-            // 假設雙面是根據大小單雙來判斷
-            // 這裡可以根據特定邏輯來處理
-            break;
-
-        // 更多的投注類型可以根據需求添加
+        if (winningAmount > 0) {
+            winners.push({
+                betId: bet.bet_id,
+                prizeTypeId: 1, // 假設為 "正碼"
+                winningAmount,
+            });
+        }
     }
 
-    return winningAmount;
+    // 批量插入中獎資訊
+    if (winners.length > 0) {
+        const insertQuery = `
+            INSERT INTO winners_info (bet_id, prize_type_id, winning_amount, winning_time) 
+            VALUES 
+            ${winners.map((winner, index) => `($${index * 3 + 1}, $${index * 3 + 2}, $${index * 3 + 3}, CURRENT_TIMESTAMP)`).join(', ')}
+        `;
+
+        const values = winners.flatMap(winner => [winner.betId, winner.prizeTypeId, winner.winningAmount]);
+        await client.query(insertQuery, values);
+        console.log('Batch winner records inserted successfully');
+    }
+    // 無返回值，返回 void
 };
 
-// 處理中獎結果並更新資料庫
-const notifyWinnersAndUpdate = async (lotteryId: number, winningNumbers: number[], specialNumber: number) => {
-    try {
-        // 查找所有該彩票遊戲的投注資料
-        const betsRes = await client.query(
-            'SELECT * FROM betting_info WHERE lottery_id = $1',
-            [lotteryId]
-        );
-
-        if (betsRes.rows.length === 0) {
-            console.log('No bets found for this lottery!');
-            return;
-        }
-
-        // 遍歷每個投注，並比對是否中獎
-        for (let bet of betsRes.rows) {
-            const { bet_id, user_id, bet_type, betting_numbers } = bet;
-
-            // 計算中獎金額
-            const winningAmount = await calculateWinningAmount(lotteryId, bet_type, betting_numbers, winningNumbers, specialNumber);
-
-            if (winningAmount > 0) {
-                // 中獎，將結果插入到 winners_info 表格
-                const insertQuery = `
-                    INSERT INTO winners_info (bet_id, prize_type_id, winning_amount, winning_time)
-                    VALUES ($1, (SELECT prize_type_id FROM prize_types WHERE lottery_id = $2 LIMIT 1), $3, CURRENT_TIMESTAMP)
-                `;
-                await client.query(insertQuery, [bet_id, lotteryId, winningAmount]);
-                console.log(`User ${user_id} won ${winningAmount} on bet ${bet_id}`);
-
-                // 這裡還可以添加其他的通知邏輯，比如發送郵件、訊息等
-            }
-        }
-    } catch (error) {
-        console.error('Error notifying winners and updating database:', error);
+const LotteryDraw = async (lotteryId: number) => {
+    // 獲取彩票遊戲的基本資訊
+    const lotteryRes = await client.query(
+        'SELECT * FROM lottery_info WHERE lottery_id = $1',
+        [lotteryId]
+    );
+    if (lotteryRes.rows.length === 0) {
+        console.log('Lottery not found!');
+        return undefined;
     }
+
+    const { total_numbers, main_numbers, special_number, lottery_id } = lotteryRes.rows[0];
+
+    // 隨機選擇主號碼
+    const mainNumbers = generateRandomNumbers(1, total_numbers, main_numbers);
+
+    // 隨機選擇特別號碼
+    const specialNumbers = generateRandomNumbers(1, total_numbers, special_number);
+
+    // 記錄開獎結果到資料庫
+    await recordDrawResult(lottery_id, mainNumbers, specialNumbers[0]);
+
+    return { mainNumbers, specialNumbers }
+}
+
+const getBetResults = async (lotteryId: number) => {
+    const query = `
+        SELECT * FROM bet_results WHERE lottery_id = $1
+    `;
+    const values = [lotteryId];
+    const res = await client.query(query, values);
+    return res.rows;
+}
+
+// 控制並行查詢數量的函數
+const processWithLimitedConcurrency = async (
+    batches: Promise<void>[],
+    maxConcurrency: number
+): Promise<void> => {
+    let index = 0;
+
+    // 使用遞歸方式控制並行數量
+    const nextBatch = async () => {
+        if (index >= batches.length) return;
+        const currentBatch = batches[index];
+        index++;
+
+        // 等待當前批次完成，再繼續下一批
+        await currentBatch;
+        await nextBatch();
+    };
+
+    // 限制並行執行的批次數量
+    const concurrencyTasks = Array.from({ length: maxConcurrency }, nextBatch);
+    await Promise.all(concurrencyTasks);
 };
 
 // 開獎函數
-const drawLottery = async (lotteryId: number) => {
+const drawLottery = async (lotteryId: number, batchSize: number = 10000, maxConcurrency: number = 16): Promise<void> => {
     try {
-        // 獲取彩票遊戲的基本資訊
-        const res = await client.query(
-            'SELECT * FROM lottery_info WHERE lottery_id = $1',
-            [lotteryId]
-        );
-
-        if (res.rows.length === 0) {
-            console.log('Lottery not found!');
+        let mainNumbers = undefined;
+        let specialNumber = undefined
+        // 獲取開獎結果
+        const betResult = await getBetResults(lotteryId);
+        if (betResult.length === 0) {
+            // 獲得開獎資訊
+            const LotteryResult = await LotteryDraw(lotteryId);
+            if (!LotteryResult) {
+                console.log('Lottery not found!');
+                return;
+            }
+            mainNumbers = LotteryResult.mainNumbers;
+            specialNumber = LotteryResult.specialNumbers[0];
+        } else if (betResult.length === 1) {
+            mainNumbers = betResult[0]?.winning_numbers;
+            specialNumber = betResult[0]?.specialNumber;
+        } else {
+            console.log('Lottery found more than one result!');
             return;
         }
 
-        const lottery = res.rows[0];
-        const { total_numbers, main_numbers, special_number, draw_time_days, draw_time_time } = lottery;
+        // 獲取總的投注資料數量
+        const totalBetsRes = await client.query('SELECT COUNT(*) FROM betting_info WHERE lottery_id = $1', [lotteryId]);
+        const totalBets = parseInt(totalBetsRes.rows[0].count, 10);
 
-        // 隨機選擇主號碼
-        const mainNumbers = generateRandomNumbers(1, total_numbers, main_numbers);
+        // 批次處理投注資料
+        const batches = Math.ceil(totalBets / batchSize);
+        const batchPromises: Array<Promise<void>> = [];
 
-        // 隨機選擇特別號碼
-        const specialNumbers = generateRandomNumbers(1, total_numbers, special_number);
+        console.time('Lottery draw and winner processing time');
+        for (let i = 0; i < batches; i++) {
+            const offset = i * batchSize;
 
-        // 記錄開獎結果到資料庫
-        await recordDrawResult(lotteryId, mainNumbers, specialNumbers[0]);
+            // 查詢當前批次的投注資料
+            const batchDataRes = await client.query(
+                'SELECT * FROM betting_info WHERE lottery_id = $1 LIMIT $2 OFFSET $3',
+                [lotteryId, batchSize, offset]
+            );
 
-        // 通知中獎用戶並更新中獎資料
-        await notifyWinnersAndUpdate(lotteryId, mainNumbers, specialNumbers[0]);
+            const batchData = batchDataRes.rows;
+
+            // 將每個批次的處理封裝成 Promise 並加入批次列表
+            batchPromises.push(processWinners(batchData, mainNumbers, specialNumber));
+        }
+
+        // 控制並行數量
+        await processWithLimitedConcurrency(batchPromises, maxConcurrency);
+
+        console.log('Lottery draw and winner processing completed successfully');
 
     } catch (error) {
         console.error('Error drawing lottery:', error);
     }
+    console.timeEnd('Lottery draw and winner processing time');
 };
 
 // 啟動應用程序
-async function main() {
+async function main(): Promise<void> {
     await client.connect();
     // 執行開獎（例如，開獎 ID 為 1 的遊戲）
     await drawLottery(1);
