@@ -9,6 +9,8 @@
     "dev:v3": "npx ts-node src/v3/index.ts",
     "dev:v4": "npx ts-node src/v4/index.ts",
     "dev:v5": "npx ts-node src/v5/index.ts",
+    "dev:v6": "npx ts-node src/v6/index.ts",
+    "dev:v7": "NODE_OPTIONS=--expose-gc npx ts-node src/v7/index.ts",
     "migration:mock-data": "npx ts-node mock/index.ts"
   },
   "repository": {
