@@ -5,6 +5,7 @@
     "build": "npx tsc",
     "start": "node dist/index.js",
     "dev": "npx ts-node src/index.ts",
+    "dev:worker": "node src/index.js",
     "migration:mock-data": "npx ts-node mock/index.ts"
   },
   "repository": {
